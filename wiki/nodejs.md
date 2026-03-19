@@ -106,7 +106,7 @@ Docs:
    [run in the `VS Code Terminal`](./vs-code.md#run-a-command-in-the-vs-code-terminal):
 
    ```terminal
-   nix profile install nixpkgs#nodejs_25
+   nix profile add nixpkgs#nodejs_25
    ```
 
 3. [Check that `Node.js` works](#check-that-nodejs-works).
