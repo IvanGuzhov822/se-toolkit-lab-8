@@ -12,6 +12,24 @@ In this task you:
 2. Add a custom WebSocket channel so web clients can connect
 3. Add a Flutter web chat client that talks to the agent through the WebSocket
 
+### Architecture you are building
+
+Keep this request flow in mind while working:
+
+```text
+browser -> caddy -> nanobot webchat channel -> nanobot gateway -> lms_mcp -> backend
+nanobot gateway -> qwen-code-api -> Qwen
+```
+
+If something fails, identify which hop is broken instead of debugging the
+whole stack at once.
+
+### Security note
+
+Your repo-local `nanobot/config.json` and your Docker env file may contain real
+secrets such as API keys and access keys. Keep them local. Do not commit them
+to Git.
+
 ## Part A — Deploy nanobot as a Docker service
 
 In Task 1 you ran `nanobot agent` from the VM terminal. For production, nanobot runs as `nanobot gateway` — a persistent service that listens for connections from channels (WebSocket, Telegram, etc.).
@@ -30,7 +48,20 @@ In Task 1 you ran `nanobot agent` from the VM terminal. For production, nanobot 
 
      > **Hint:** Read `config.json`, inject env var values for provider API key/base URL, gateway host/port, and MCP server env vars (backend URL plus backend API key). Write a resolved config. Then `os.execvp("nanobot", ["nanobot", "gateway", "--config", resolved, "--workspace", workspace])`.
 
+     A good mental model for `entrypoint.py` is:
+
+     1. Read `config.json`
+     2. Override only the fields that must come from Docker env vars
+     3. Write `config.resolved.json`
+     4. `execvp(...)` into `nanobot gateway`
+
    - **`Dockerfile`** — multi-stage build with `uv` (same pattern as `backend/Dockerfile`). Final CMD: `python /app/nanobot/entrypoint.py`.
+
+   By the end of Part A, you should have modified at least:
+
+   - `nanobot/entrypoint.py`
+   - `nanobot/Dockerfile`
+   - `docker-compose.yml`
 
 3. Uncomment the scaffolded `nanobot` service block in `docker-compose.yml` and adapt it to your implementation:
 
@@ -38,6 +69,22 @@ In Task 1 you ran `nanobot agent` from the VM terminal. For production, nanobot 
    - Check that the environment variables match what your `entrypoint.py` reads.
    - Notice that the scaffold uses container-local URLs such as `http://backend:...` and `http://qwen-code-api:...` rather than the VM-shell `localhost` values from Task 1.
    - Keep it on `lms-network`.
+
+   Why not `localhost` inside Docker?
+
+   - In Task 1, `localhost` meant "this VM"
+   - In Docker, `localhost` inside the `nanobot` container means "the nanobot container itself"
+   - To reach other services, use their Compose service names such as `backend` and `qwen-code-api`
+
+   A useful mapping table:
+
+   - `LLM_API_KEY` -> `providers.custom.apiKey`
+   - `LLM_API_BASE_URL` -> `providers.custom.apiBase`
+   - `LLM_API_MODEL` -> `agents.defaults.model`
+   - `NANOBOT_GATEWAY_CONTAINER_ADDRESS` -> `gateway.host`
+   - `NANOBOT_GATEWAY_CONTAINER_PORT` -> `gateway.port`
+   - `NANOBOT_LMS_BACKEND_URL` -> `tools.mcpServers.lms.env.NANOBOT_LMS_BACKEND_URL`
+   - `NANOBOT_LMS_API_KEY` -> `tools.mcpServers.lms.env.NANOBOT_LMS_API_KEY`
 
 4. Build and deploy. Because some services use `additional_contexts`, you must **build first** and then start:
 
@@ -56,6 +103,13 @@ In Task 1 you ran `nanobot agent` from the VM terminal. For production, nanobot 
    docker compose --env-file .env.docker.secret logs nanobot --tail 50
    ```
 
+   Expected good signs in the logs:
+
+   - `Using config: /app/nanobot/config.resolved.json`
+   - `Channels enabled: webchat`
+   - `MCP server 'lms': connected`
+   - `Agent loop started`
+
    > [!TIP]
    > **Troubleshooting common issues:**
    >
@@ -64,6 +118,10 @@ In Task 1 you ran `nanobot agent` from the VM terminal. For production, nanobot 
    > **Empty page at /flutter** — the Flutter volume isn't mounted in Caddy. Make sure `client-web-flutter:/srv/flutter:ro` is uncommented in the caddy service's `volumes:`.
    >
    > **"Connection lost" in Flutter** — WebSocket rejected the access key. Clear browser data for the site and re-enter your `NANOBOT_ACCESS_KEY`.
+   >
+   > **Slow replies in Flutter** — if the model is busy or rate-limited, a response may take 10-30 seconds. Slow does not automatically mean broken deployment.
+   >
+   > **`client-web-flutter` is not "Up" like other services** — that can be normal. It is a build/copy container that writes the compiled app into a Docker volume, not a long-running server process.
 
 <!-- STOP -->
 > [!CAUTION]
@@ -128,10 +186,16 @@ Both are in a single repository. The webchat plugin handles:
    "channels": {
      "webchat": {
        "enabled": true,
-       "allowFrom": ["*"]
-     }
-   }
+        "allowFrom": ["*"]
+      }
+    }
    ```
+
+   By the end of Part B, you should have modified at least:
+
+   - `nanobot/config.json`
+   - `caddy/Caddyfile`
+   - `docker-compose.yml`
 
 5. Uncomment the scaffolded `/ws/chat` route in `caddy/Caddyfile`, then uncomment the related `nanobot` lines in the `caddy` service inside `docker-compose.yml`:
 
@@ -170,15 +234,63 @@ Both are in a single repository. The webchat plugin handles:
    docker compose --env-file .env.docker.secret up -d
    ```
 
+   > [!TIP]
+   > After rebuilding the Flutter client, do a hard refresh in the browser so
+   > you do not keep stale JavaScript assets.
+
 9. Test the WebSocket endpoint through Caddy with the deployment access key:
 
    ```terminal
    echo '{"content":"What labs are available?"}' | websocat "ws://localhost:42002/ws/chat?access_key=YOUR_NANOBOT_ACCESS_KEY"
    ```
 
+   If `websocat` is not installed on your VM, use a short Python fallback
+   instead of blocking on tooling:
+
+   ```terminal
+   python - <<'PY'
+   import asyncio
+   import json
+   import websockets
+
+   async def main():
+       uri = "ws://localhost:42002/ws/chat?access_key=YOUR_NANOBOT_ACCESS_KEY"
+       async with websockets.connect(uri) as ws:
+           await ws.send(json.dumps({"content": "What labs are available?"}))
+           print(await ws.recv())
+
+   asyncio.run(main())
+   PY
+   ```
+
 10. Open `http://<your-vm-ip>:42002/flutter` in your browser. Log in with your `NANOBOT_ACCESS_KEY`. Start by asking the agent:
     - `What can you do in this system?`
-    - One quiz or LMS/system question of your choice
+    - `How is the backend doing?`
+
+    > [!TIP]
+    > The Flutter client stores the access key in browser storage. If login
+    > behaves strangely after you typed a wrong key once, clear site data or
+    > use the logout button and log in again.
+
+    If the web client is working, the nanobot logs should show something like:
+
+    - `Processing message from webchat:...`
+    - `Tool call: mcp_lms_lms_labs({...})` or `Tool call: mcp_lms_lms_health({...})`
+    - `Response to webchat:...`
+
+    A healthy end-to-end path looks like this:
+
+    - the login screen appears at `/flutter`
+    - the access key is accepted
+    - the agent answers a general capability question
+    - the agent answers an LMS-backed question using real tools
+
+    Quick troubleshooting map:
+
+    - wrong access key -> login rejected or WebSocket closes immediately
+    - slow model -> answer arrives late, but the socket stays alive
+    - stale frontend bundle -> hard refresh fixes missing recent UI changes
+    - blank `/flutter` page -> check the Flutter volume mount and Caddy route
 
 <!-- STOP -->
 > [!CAUTION]
@@ -193,8 +305,9 @@ Both are in a single repository. The webchat plugin handles:
 
 1. `websocat "ws://localhost:42002/ws/chat?access_key=YOUR_NANOBOT_ACCESS_KEY"` returns a real agent response.
 2. Open `http://<your-vm-ip>:42002/flutter` — you should see a login screen.
-3. Log in with your `NANOBOT_ACCESS_KEY`, ask `What can you do in this system?`, then ask one question from the quiz question bank.
-4. Screenshot the conversation and add it to `REPORT.md` under `## Task 2B — Web client`.
+3. Log in with your `NANOBOT_ACCESS_KEY`, ask `What can you do in this system?`, then ask `How is the backend doing?`
+4. The second answer should be backed by real LMS/backend data, not just a generic greeting.
+5. Screenshot the conversation and add it to `REPORT.md` under `## Task 2B — Web client`. The screenshot should show at least one real agent answer, not only the welcome screen.
 
 ---
 
