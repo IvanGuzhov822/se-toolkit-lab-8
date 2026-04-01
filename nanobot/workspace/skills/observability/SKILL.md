@@ -17,6 +17,19 @@ Use observability MCP tools to access logs from VictoriaLogs and traces from Vic
 
 ## Strategy
 
+### When user asks "What went wrong?" or "Check system health":
+
+1. First call `mcp_obs_logs_error_count` with service="Learning Management Service" and minutes=10 to check for recent errors
+2. If errors exist, call `mcp_obs_logs_search` with query like `service.name:"Learning Management Service" severity:ERROR _time:10m`
+3. Look for `trace_id` in the error logs
+4. If a trace_id is found, call `mcp_obs_traces_get` to fetch the full trace
+5. Summarize findings concisely:
+   - Mention the affected service
+   - Cite specific log evidence (event name, error message)
+   - Cite trace evidence (failing operation, span duration)
+   - Explain the root cause in plain language
+   - Do NOT dump raw JSON
+
 ### When user asks about errors, failures, or issues:
 
 1. First call `mcp_obs_logs_error_count` with the relevant service name and time window to see if there are recent errors
