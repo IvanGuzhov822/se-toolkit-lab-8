@@ -197,22 +197,61 @@ Expected response: The agent should ask which lab the user wants to see scores f
 
 | File | Purpose |
 |------|---------|
-| `nanobot/pyproject.toml` | Project dependencies (nanobot-ai, mcp-lms) |
-| `nanobot/config.json` | Agent configuration with custom provider and MCP server |
+| `nanobot/pyproject.toml` | Project dependencies (nanobot-ai, mcp-lms, nanobot-webchat, mcp-webchat) |
+| `nanobot/config.json` | Agent configuration with custom provider, MCP servers, and webchat channel |
 | `nanobot/workspace/skills/lms/SKILL.md` | LMS skill prompt for tool usage strategy |
-| `.env.docker.secret` | Environment variables with API keys |
+| `nanobot/entrypoint.py` | Docker entrypoint that resolves env vars and starts nanobot gateway |
+| `nanobot/Dockerfile` | Multi-stage Docker build for nanobot |
+| `docker-compose.yml` | Nanobot and client-web-flutter services |
+| `caddy/Caddyfile` | Routes for /ws/chat and /flutter |
 
-## Verification Commands
+---
 
-Run these on the VM after starting all services:
+## Task 2A — Deployed agent
 
-```bash
-# Task 1A - Bare agent
-cd nanobot && uv run nanobot agent --logs --session cli:task1a-loop -c ./config.json -m "What is the agentic loop?"
+### Startup Log Excerpt
 
-# Task 1B - Agent with LMS tools
-cd nanobot && NANOBOT_LMS_BACKEND_URL=http://localhost:42002 NANOBOT_LMS_API_KEY=lms-api-key-secret uv run nanobot agent --logs --session cli:task1b-labs -c ./config.json -m "What labs are available?"
-
-# Task 1C - Skill prompt
-cd nanobot && NANOBOT_LMS_BACKEND_URL=http://localhost:42002 NANOBOT_LMS_API_KEY=lms-api-key-secret uv run nanobot agent --logs --session cli:task1c -c ./config.json -m "Show me the scores"
 ```
+🐈 Starting nanobot gateway version 0.1.4.post5 on port 18790...
+✓ Channels enabled: webchat
+✓ Heartbeat: every 1800s
+MCP server 'lms': connected, 9 tools registered
+MCP server 'webchat': connected, 1 tools registered
+Agent loop started
+```
+
+**Checkpoint Status: PASS** — nanobot gateway is running with webchat channel and MCP tools.
+
+---
+
+## Task 2B — Web client
+
+### WebSocket Test
+
+Command:
+```bash
+uv run python -c "
+import asyncio, json, websockets
+async def main():
+    uri = 'ws://localhost:42002/ws/chat?access_key=staksel-barakuda'
+    async with websockets.connect(uri) as ws:
+        await ws.send(json.dumps({'content': 'What labs are available?'}))
+        print(await ws.recv())
+asyncio.run(main())
+"
+```
+
+Response:
+```json
+{
+  "type": "text",
+  "content": "Here are the available labs:\n\n1. **Lab 01** – Products, Architecture & Roles\n2. **Lab 02** — Run, Fix, and Deploy a Backend Service\n3. **Lab 03** — Backend API: Explore, Debug, Implement, Deploy\n4. **Lab 04** — Testing, Front-end, and AI Agents\n5. **Lab 05** — Data Pipeline and Analytics Dashboard\n6. **Lab 06** — Build Your Own Agent\n7. **Lab 07** — Build a Client with an AI Coding Agent\n8. **lab-08**\n\nWould you like to see details for any specific lab, such as pass rates, completion rates, group performance, or top learners?",
+  "format": "markdown"
+}
+```
+
+### Flutter Client
+
+The Flutter web client is accessible at `http://localhost:42002/flutter/`. It serves the login screen and accepts the `NANOBOT_ACCESS_KEY` for authentication.
+
+**Checkpoint Status: PASS** — WebSocket endpoint responds with real backend data and Flutter client serves content.
