@@ -22,16 +22,21 @@ Use LMS MCP tools to access live course data from the LMS backend.
 
 ## Strategy
 
-### When user asks about labs, scores, pass rates, completion, groups, timeline, or top learners:
+### When user asks about scores, pass rates, completion, groups, timeline, or top learners:
 
-1. If the user did not specify a lab identifier:
+1. **Always ask for lab selection first if not specified:**
    - Call `lms_labs` first to get the list of available labs
+   - If the user asked for "scores" or "pass rates" without naming a lab, present the list and ask them to choose
    - Use `mcp_webchat_ui_message` with `type: "choice"` to let the user select a lab
    - Provide each lab's `id` as the value and `title` as the label
    - If UI choice is not available on the channel, ask in plain text which lab they want
+   - **Do not** fetch pass rates for all labs at once — wait for the user to pick one
 
 2. If the user specified a lab:
    - Call the appropriate tool directly with the lab identifier
+
+### When user asks "what labs are available?" or just "list labs":
+   - Call `lms_labs` and show the full list
 
 ### When user asks "what can you do?":
 
