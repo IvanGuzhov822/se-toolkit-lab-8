@@ -12,18 +12,20 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 COPY nanobot/pyproject.toml ./nanobot/pyproject.toml
 COPY mcp/mcp-lms/pyproject.toml ./mcp/mcp-lms/pyproject.toml
+COPY mcp/mcp-obs/pyproject.toml ./mcp/mcp-obs/pyproject.toml
 COPY nanobot-websocket-channel/nanobot-webchat/pyproject.toml ./nanobot-websocket-channel/nanobot-webchat/pyproject.toml
 COPY nanobot-websocket-channel/mcp-webchat/pyproject.toml ./nanobot-websocket-channel/mcp-webchat/pyproject.toml
 COPY nanobot-websocket-channel/nanobot-channel-protocol/pyproject.toml ./nanobot-websocket-channel/nanobot-channel-protocol/pyproject.toml
 
 COPY nanobot ./nanobot
 COPY mcp/mcp-lms ./mcp/mcp-lms
+COPY mcp/mcp-obs ./mcp/mcp-obs
 COPY nanobot-websocket-channel/nanobot-webchat ./nanobot-websocket-channel/nanobot-webchat
 COPY nanobot-websocket-channel/mcp-webchat ./nanobot-websocket-channel/mcp-webchat
 COPY nanobot-websocket-channel/nanobot-channel-protocol ./nanobot-websocket-channel/nanobot-channel-protocol
 
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --package nanobot
+    uv sync --package nanobot --package mcp-obs
 
 FROM ${REGISTRY_PREFIX_DOCKER_HUB}python:3.14.2-slim-bookworm
 
